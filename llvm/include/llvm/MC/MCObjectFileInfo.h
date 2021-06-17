@@ -66,6 +66,9 @@ protected:
   /// constants.
   MCSection *ReadOnlySection = nullptr;
 
+  /// Section that holds information to recover call graph from the binary.
+  MCSection *CallGraphSection = nullptr;
+
   /// If exception handling is supported by the target, this is the section the
   /// Language Specific Data Area information is emitted to.
   MCSection *LSDASection = nullptr;
@@ -255,6 +258,7 @@ public:
   MCSection *getDataSection() const { return DataSection; }
   MCSection *getBSSSection() const { return BSSSection; }
   MCSection *getReadOnlySection() const { return ReadOnlySection; }
+  MCSection *getCallGraphSection() const { return CallGraphSection; }
   MCSection *getCompactUnwindSection() const { return CompactUnwindSection; }
   MCSection *getDwarfAbbrevSection() const { return DwarfAbbrevSection; }
   MCSection *getDwarfInfoSection() const { return DwarfInfoSection; }

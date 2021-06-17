@@ -414,16 +414,21 @@ public:
       assert(Arg < (1 << 16) && "Arg out of range");
     }
   };
-  /// Vector of call argument and its forwarding register.
-  using CallSiteInfo = SmallVector<ArgRegPair, 1>;
-  using CallSiteInfoImpl = SmallVectorImpl<ArgRegPair>;
+
+  struct CallSiteInfo {
+    /// Vector of call argument and its forwarding register.
+    SmallVector<ArgRegPair, 1> ArgRegPairs;
+    /// Call base type.
+    FunctionType *CallType;
+  };
 
 private:
   Delegate *TheDelegate = nullptr;
   GISelChangeObserver *Observer = nullptr;
 
   using CallSiteInfoMap = DenseMap<const MachineInstr *, CallSiteInfo>;
-  /// Map a call instruction to call site arguments forwarding info.
+  /// Map a call instruction to call site arguments forwarding and call
+  /// base type info.
   CallSiteInfoMap CallSitesInfo;
 
   /// A helper function that returns call site info for a give call
@@ -1094,9 +1099,9 @@ public:
     return VariableDbgInfos;
   }
 
-  /// Start tracking the arguments passed to the call \p CallI.
-  void addCallArgsForwardingRegs(const MachineInstr *CallI,
-                                 CallSiteInfoImpl &&CallInfo) {
+  /// Start tracking the arguments passed to the call \p CallI and the call
+  /// base type.
+  void addCallSiteInfo(const MachineInstr *CallI, CallSiteInfo &&CallInfo) {
     assert(CallI->isCandidateForCallSiteEntry());
     bool Inserted =
         CallSitesInfo.try_emplace(CallI, std::move(CallInfo)).second;

@@ -360,6 +360,10 @@ void MCObjectFileInfo::initELFMCObjectFileInfo(const Triple &T, bool Large) {
   ReadOnlySection =
       Ctx->getELFSection(".rodata", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
 
+  // TODO: verify that the section type is optimal for its use
+  CallGraphSection =
+      Ctx->getELFSection(".callgraph", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
+
   TLSDataSection =
       Ctx->getELFSection(".tdata", ELF::SHT_PROGBITS,
                          ELF::SHF_ALLOC | ELF::SHF_TLS | ELF::SHF_WRITE);

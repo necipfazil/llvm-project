@@ -1216,6 +1216,76 @@ void AsmPrinter::emitStackUsage(const MachineFunction &MF) {
     *StackUsageStream << "static\n";
 }
 
+void AsmPrinter::emitCallGraphSection() {
+  if (CallSiteLabels.empty() && FuncEntryLabels.empty()) return;
+  OutStreamer->PushSection();
+  OutStreamer->SwitchSection(OutContext.getObjectFileInfo()->getCallGraphSection());
+
+  // Emit for call sites, and function entries with matching type ids.
+  for (const auto &TypeIdCallSiteLabel : CallSiteLabels) {
+    uint64_t TypeId = TypeIdCallSiteLabel.first;
+    const auto &TypeIdCallSiteLabels = TypeIdCallSiteLabel.second;
+
+    // Format version number.
+    OutStreamer->emitInt64(0);
+
+    // Emit type id.
+    OutStreamer->emitInt64(TypeId);
+
+    // Emit number of call site labels.
+    OutStreamer->emitInt64(TypeIdCallSiteLabels.size());
+
+    // Emit the call site labels.
+    for (const auto &Label: TypeIdCallSiteLabels) {
+      OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+    }
+
+    // Emit for the function entries with matching type id.
+    if (!FuncEntryLabels.count(TypeId)) {
+      // Emit the number of function entry labels: 0.
+      OutStreamer->emitInt64(0);
+    } else {
+      auto &TypeIdFuncEntryLabels = FuncEntryLabels[TypeId];
+
+      // Emit the number of function entry labels.
+      OutStreamer->emitInt64(TypeIdFuncEntryLabels.size());
+
+      // Emit the function entry labels.
+      for (const auto &Label: TypeIdFuncEntryLabels) {
+        OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+      }
+    }    
+  }
+
+  // Emit for the function entries that did not have a matching type id
+  // with any call site.
+  for (const auto &TypeIdFuncEntryLabel : FuncEntryLabels) {
+    uint64_t TypeId = TypeIdFuncEntryLabel.first;
+    const auto &TypeIdFuncEntryLabels = TypeIdFuncEntryLabel.second;
+
+    if (!CallSiteLabels.count(TypeId)) {
+      // Format version number.
+      OutStreamer->emitInt64(0);
+
+      // Emit type id.
+      OutStreamer->emitInt64(TypeId);
+      
+      // Emit the number of call site labels: 0.
+      OutStreamer->emitInt64(0);
+
+      // Emit the number of function entry labels.
+      OutStreamer->emitInt64(TypeIdFuncEntryLabels.size());
+
+      // Emit the function entry labels.
+      for (const auto &Label: TypeIdFuncEntryLabels) {
+        OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+      }   
+    }
+  }
+
+  OutStreamer->PopSection();
+}
+
 static bool needFuncLabelsForEHOrDebugInfo(const MachineFunction &MF) {
   MachineModuleInfo &MMI = MF.getMMI();
   if (!MF.getLandingPads().empty() || MF.hasEHFunclets() || MMI.hasDebugInfo())
@@ -1260,6 +1330,26 @@ void AsmPrinter::emitFunctionBody() {
   int NumInstsInFunction = 0;
 
   bool CanDoExtraAnalysis = ORE->allowExtraAnalysis(DEBUG_TYPE);
+  if (TM.Options.EmitCallGraphSection) {
+    // Compute the function type id, save, and emit label.
+    // If this function has external linkage or has its address taken and
+    // it is not a callback, then anything could call it. If so, emit a
+    // label to be referenced in the call graph section for indirect calls.
+    if (!MF->getFunction().hasLocalLinkage() ||
+        MF->getFunction().hasAddressTaken(nullptr,
+                          /* IgnoreCallbackUses */true,
+                          /* IgnoreAssumeLikeCalls */ true,
+                          /* IgnoreLLVMUsed */ false)) {
+      MCSymbol *S = MF->getContext().createTempSymbol();
+      OutStreamer->emitLabel(S);
+      FunctionType *FuncType = MF->getFunction().getFunctionType();
+      assert (FuncType != NULL && "Null function type.");
+      // TODO: Use more restrictive type ids, e.g., as in CFI.
+      uint64_t FuncTypeId = FuncType->getNumParams();
+      FuncEntryLabels[FuncTypeId].push_back(S);
+    }
+  }
+  const auto &CallSitesInfoMap = MF->getCallSitesInfo();
   for (auto &MBB : *MF) {
     // Print a label for the basic block.
     emitBasicBlockStart(MBB);
@@ -1340,6 +1430,29 @@ void AsmPrinter::emitFunctionBody() {
         break;
       }
 
+      // TODO: Some indirect calls can get lowered to jump instructions,
+      // resulting in emitting labels for them. The extra information can
+      // be neglected while disassembly but still takes space in the binary.
+      if (TM.Options.EmitCallGraphSection && MI.isCall()) {
+        bool IsDirect = false;
+        for (const MachineOperand &Operand : MI.operands())
+          IsDirect |= Operand.isGlobal() &&
+                      isa_and_nonnull<Function>(Operand.getGlobal());
+        if (!IsDirect) {
+          const auto &CallSiteInfo = CallSitesInfoMap.find(&MI);
+          assert (CallSiteInfo != CallSitesInfoMap.end() && "No call site info for call instruction.");
+          const auto &CallType = CallSitesInfoMap.find(&MI)->second.CallType;
+          if (CallType != NULL) {
+            // Compute type id.
+            // TODO: Use more restrictive type ids, e.g., as in CFI.
+            uint64_t FuncTypeId = CallType->getNumParams();
+            // Emit label for the indirect call.
+            MCSymbol *S = MF->getContext().createTempSymbol();
+            OutStreamer->emitLabel(S);
+            CallSiteLabels[FuncTypeId].push_back(S);
+          }
+        }
+      }
       // If there is a post-instruction symbol, emit a label for it here.
       if (MCSymbol *S = MI.getPostInstrSymbol())
         OutStreamer->emitLabel(S);
@@ -1747,6 +1860,9 @@ bool AsmPrinter::doFinalization(Module &M) {
   // not come after debug info.
   if (remarks::RemarkStreamer *RS = M.getContext().getMainRemarkStreamer())
     emitRemarksSection(*RS);
+
+  if (TM.Options.EmitCallGraphSection)
+    emitCallGraphSection();
 
   TLOF.emitModuleMetadata(*OutStreamer, M);
 

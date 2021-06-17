@@ -5511,6 +5511,9 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   bool IsSibCall = false;
   bool IsCalleeWin64 = Subtarget->isCallingConvWin64(CallConv);
 
+  // Set call base type for call site info.
+  CSInfo.CallType = CLI.CB != NULL ? CLI.CB->getFunctionType() : NULL;
+
   // Check callee args/returns for SVE registers and set calling convention
   // accordingly.
   if (CallConv == CallingConv::C || CallConv == CallingConv::Fast) {
@@ -5777,7 +5780,8 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
         // Call site info is used for function's parameter entry value
         // tracking. For now we track only simple cases when parameter
         // is transferred through whole register.
-        llvm::erase_if(CSInfo, [&VA](MachineFunction::ArgRegPair ArgReg) {
+        llvm::erase_if(CSInfo.ArgRegPairs, 
+                       [&VA](MachineFunction::ArgRegPair ArgReg) {
           return ArgReg.Reg == VA.getLocReg();
         });
       } else {
@@ -5785,7 +5789,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
         RegsUsed.insert(VA.getLocReg());
         const TargetOptions &Options = DAG.getTarget().Options;
         if (Options.EmitCallSiteInfo)
-          CSInfo.emplace_back(VA.getLocReg(), i);
+          CSInfo.ArgRegPairs.emplace_back(VA.getLocReg(), i);
       }
     } else {
       assert(VA.isMemLoc());

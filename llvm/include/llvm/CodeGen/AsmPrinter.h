@@ -15,6 +15,7 @@
 #ifndef LLVM_CODEGEN_ASMPRINTER_H
 #define LLVM_CODEGEN_ASMPRINTER_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/AsmPrinterHandler.h"
@@ -181,6 +182,10 @@ private:
 
   /// Emit comments in assembly output if this is true.
   bool VerboseAsm;
+
+  /// Type id to function entry or call site labels mapping.
+  DenseMap<uint64_t, std::vector<const MCSymbol *>> CallSiteLabels;
+  DenseMap<uint64_t, std::vector<const MCSymbol *>> FuncEntryLabels;
 
   /// Output stream for the stack usage file (i.e., .su file).
   std::unique_ptr<raw_fd_ostream> StackUsageStream;
@@ -364,6 +369,8 @@ public:
   void emitStackUsage(const MachineFunction &MF);
 
   void emitBBAddrMapSection(const MachineFunction &MF);
+
+  void emitCallGraphSection();
 
   void emitPseudoProbe(const MachineInstr &MI);
 

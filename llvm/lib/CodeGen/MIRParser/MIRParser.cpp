@@ -394,14 +394,15 @@ bool MIRParserImpl::initializeCallSiteInfo(
       Register Reg;
       if (parseNamedRegisterReference(PFS, Reg, ArgRegPair.Reg.Value, Error))
         return error(Error, ArgRegPair.Reg.SourceRange);
-      CSInfo.emplace_back(Reg, ArgRegPair.ArgNo);
+      CSInfo.ArgRegPairs.emplace_back(Reg, ArgRegPair.ArgNo);
     }
 
-    if (TM.Options.EmitCallSiteInfo)
-      MF.addCallArgsForwardingRegs(&*CallI, std::move(CSInfo));
+    if (TM.Options.EmitCallSiteInfo || TM.Options.EmitCallGraphSection)
+      MF.addCallSiteInfo(&*CallI, std::move(CSInfo));
   }
 
-  if (YamlMF.CallSitesInfo.size() && !TM.Options.EmitCallSiteInfo)
+  if (YamlMF.CallSitesInfo.size() && 
+      !(TM.Options.EmitCallSiteInfo || TM.Options.EmitCallGraphSection))
     return error(Twine("Call site info provided but not used"));
   return false;
 }

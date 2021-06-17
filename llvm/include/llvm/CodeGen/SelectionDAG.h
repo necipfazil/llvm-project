@@ -266,7 +266,6 @@ class SelectionDAG {
   SDDbgInfo *DbgInfo;
 
   using CallSiteInfo = MachineFunction::CallSiteInfo;
-  using CallSiteInfoImpl = MachineFunction::CallSiteInfoImpl;
 
   struct CallSiteDbgInfo {
     CallSiteInfo CSInfo;
@@ -1936,7 +1935,7 @@ public:
            isConstantFPBuildVectorOrConstantFP(N);
   }
 
-  void addCallSiteInfo(const SDNode *CallNode, CallSiteInfoImpl &&CallInfo) {
+  void addCallSiteInfo(const SDNode *CallNode, CallSiteInfo &&CallInfo) {
     SDCallSiteDbgInfo[CallNode].CSInfo = std::move(CallInfo);
   }
 

@@ -1251,6 +1251,10 @@ defm addrsig : BoolFOption<"addrsig",
   CodeGenOpts<"Addrsig">, DefaultFalse,
   PosFlag<SetTrue, [CC1Option], "Emit">, NegFlag<SetFalse, [], "Don't emit">,
   BothFlags<[CoreOption], " an address-significance table">>;
+defm call_graph_section : BoolFOption<"call-graph-section",
+  CodeGenOpts<"CallGraphSection">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "Emit a call graph section">,
+  NegFlag<SetFalse>>;
 defm blocks : OptInFFlag<"blocks", "Enable the 'blocks' language feature", "", "", [CoreOption]>;
 def fbootclasspath_EQ : Joined<["-"], "fbootclasspath=">, Group<f_Group>;
 defm borland_extensions : BoolFOption<"borland-extensions",
