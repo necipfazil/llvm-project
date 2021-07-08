@@ -419,6 +419,9 @@ CODEGENOPT(ForceEmitVTables, 1, 0)
 /// Whether to emit an address-significance table into the object file.
 CODEGENOPT(Addrsig, 1, 0)
 
+/// Whether to emit a call graph section into the object file.
+CODEGENOPT(CallGraphSection, 1, 0)
+
 /// Whether to emit unused static constants.
 CODEGENOPT(KeepStaticConsts, 1, 0)
 

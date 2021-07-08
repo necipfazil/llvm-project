@@ -231,6 +231,7 @@
 // RUN:     -falign-functions -falign-functions=2 -fno-align-functions        \
 // RUN:     -fasynchronous-unwind-tables -fno-asynchronous-unwind-tables      \
 // RUN:     -fbuiltin -fno-builtin                                            \
+// RUN:     -fcall-graph-section -fno-call-graph-section                      \
 // RUN:     -fdiagnostics-show-location=once                                  \
 // RUN:     -ffloat-store -fno-float-store                                    \
 // RUN:     -feliminate-unused-debug-types -fno-eliminate-unused-debug-types  \
@@ -596,3 +597,9 @@
 // RUN: %clang -### -xobjective-c %s 2>&1 | FileCheck -check-prefix=CHECK_NO_DISABLE_DIRECT %s
 // CHECK_DISABLE_DIRECT: -fobjc-disable-direct-methods-for-testing
 // CHECK_NO_DISABLE_DIRECT-NOT: -fobjc-disable-direct-methods-for-testing
+
+// RUN: %clang -### -fcall-graph-section %s 2>&1 | FileCheck -check-prefix=CHECK-CALL-GRAPH-SECTION %s
+// RUN: %clang -### -fno-call-graph-section %s 2>&1 | FileCheck -check-prefix=CHECK-NO-CALL-GRAPH-SECTION %s
+// RUN: %clang -### %s 2>&1 | FileCheck -check-prefix=CHECK-NO-CALL-GRAPH-SECTION %s
+// CHECK-CALL-GRAPH-SECTION: -fcall-graph-section
+// CHECK-NO-CALL-GRAPH-SECTION-NOT: -fcall-graph-section

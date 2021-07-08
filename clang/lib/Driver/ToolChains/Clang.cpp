@@ -6413,6 +6413,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_apple_pragma_pack, false))
     CmdArgs.push_back("-fapple-pragma-pack");
 
+  if (Args.hasFlag(options::OPT_fcall_graph_section,
+                   options::OPT_fno_call_graph_section, false))
+    CmdArgs.push_back("-fcall-graph-section");
+
   if (Args.hasFlag(options::OPT_fxl_pragma_pack,
                    options::OPT_fno_xl_pragma_pack, RawTriple.isOSAIX()))
     CmdArgs.push_back("-fxl-pragma-pack");
