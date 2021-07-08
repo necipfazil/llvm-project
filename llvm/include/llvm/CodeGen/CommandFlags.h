@@ -122,6 +122,8 @@ bool getEnableStackSizeSection();
 
 bool getEnableAddrsig();
 
+bool getEnableCallGraphSection();
+
 bool getEmitCallSiteInfo();
 
 bool getEnableMachineFunctionSplitter();
