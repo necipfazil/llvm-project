@@ -31,6 +31,10 @@ def : Flag<["-"], "a">, Alias<archive_headers>,
 def demangle : Flag<["--"], "demangle">, HelpText<"Demangle symbol names">;
 def : Flag<["-"], "C">, Alias<demangle>, HelpText<"Alias for --demangle">;
 
+def call_graph_info : Flag<["--"], "call-graph-info">,
+  HelpText<"Dump call graph information including indirect call and target IDs "
+           "from call graph section, if available.">;
+
 def disassemble : Flag<["--"], "disassemble">,
   HelpText<"Display assembler mnemonics for the machine instructions">;
 def : Flag<["-"], "d">, Alias<disassemble>, HelpText<"Alias for --disassemble">;

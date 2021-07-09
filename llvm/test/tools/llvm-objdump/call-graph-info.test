@@ -1,0 +1,71 @@
+; RUN: llvm-objdump --call-graph-info %p/Inputs/call-graph-section | FileCheck %s
+
+; Source for call-graph-section
+; To regenerate this file:
+;   clang -cc1 -triple x86_64-unknown-linux -fcall-graph-section call-graph-section.c -o call-graph-section
+;
+; void foo() {
+; }
+; 
+; int bar(char a) {
+;   return 0;
+; }
+; 
+; int* baz(char* a) {
+;   return 0;
+; }
+; 
+; int main() {
+;   void (*fp_foo)() = foo;
+;   fp_foo();
+; 
+;   char a;
+;   int (*fp_bar)(char) = bar;
+;   fp_bar(a);
+; 
+;   int* (*fp_baz)(char*) = baz;
+;   fp_baz(&a);
+; 
+;   foo();
+;   bar(a);
+;   baz(&a);
+; 
+;   return 0;
+; }
+
+; The generalized type ids for functions are as follows (ITANIUM):
+;   **function** |  **clang type id**      | **call graph type id (MD5 hash)**
+;   foo          | _ZTSFvE.generalized     | 3ecbeef531f74424
+;   bar          | _ZTSFicE.generalized    | 308e4b8159bc8654
+;   baz          | _ZTSFPvS_E.generalized  | 77fd97f81468de7a
+;   main         | _ZTSFiE.generalized     | fa6809609a76afca
+
+; CHECK:     INDIRECT TARGETS TYPES (TYPEID [FUNC_ADDR,])
+; CHECK-DAG: 77fd97f81468de7a [[BAZ_PC:[[:xdigit:]]+]]
+; CHECK-DAG: 308e4b8159bc8654 [[BAR_PC:[[:xdigit:]]+]]
+; CHECK-DAG: fa6809609a76afca [[MAIN_PC:[[:xdigit:]]+]]
+; CHECK-DAG: 3ecbeef531f74424 [[FOO_PC:[[:xdigit:]]+]]
+;
+; CHECK:     INDIRECT CALLS TYPES (TYPEID [CALL_SITE_ADDR,])
+; CHECK-DAG: 77fd97f81468de7a [[IDIRCALL_TO_BAZ_CALLSITEPC:[[:xdigit:]]+]]
+; CHECK-DAG: 308e4b8159bc8654 [[IDIRCALL_TO_BAR_CALLSITEPC:[[:xdigit:]]+]]
+; CHECK-DAG: 3ecbeef531f74424 [[IDIRCALL_TO_FOO_CALLSITEPC:[[:xdigit:]]+]]
+;
+; CHECK:      INDIRECT CALL SITES (CALLER_ADDR [CALL_SITE_ADDR,])
+; CHECK:      [[MAIN_PC]]
+; CHECK-SAME:             [[IDIRCALL_TO_FOO_CALLSITEPC:[[:xdigit:]]+]]
+; CHECK-SAME:             [[IDIRCALL_TO_BAR_CALLSITEPC:[[:xdigit:]]+]]
+; CHECK-SAME:             [[IDIRCALL_TO_BAZ_CALLSITEPC:[[:xdigit:]]+]]
+;
+; CHECK: DIRECT CALL SITES (CALLER_ADDR [(CALL_SITE_ADDR, TARGET_ADDR),])
+; CHECK:      [[MAIN_PC]]
+; CHECK-SAME:             {{[[:xdigit:]]+}} [[FOO_PC]]
+; CHECK-SAME:             {{[[:xdigit:]]+}} [[BAR_PC]]
+; CHECK-SAME:             {{[[:xdigit:]]+}} [[BAZ_PC]]
+;
+; CHECK:     FUNCTION SYMBOLS (FUNC_ENTRY_ADDR, SYM_NAME)
+; CHECK-DAG: [[MAIN_PC]] main
+; CHECK-DAG: [[FOO_PC]] foo
+; CHECK-DAG: [[BAR_PC]] bar
+; CHECK-DAG: [[BAZ_PC]] baz
+
