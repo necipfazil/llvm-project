@@ -3152,6 +3152,7 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   bool &IsTailCall                      = CLI.IsTailCall;
   CallingConv::ID CallConv              = CLI.CallConv;
   bool IsVarArg                         = CLI.IsVarArg;
+  const auto *CB = CLI.CB;
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo &MFI = MF.getFrameInfo();
@@ -3209,8 +3210,17 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Get a count of how many bytes are to be pushed on the stack.
   unsigned NextStackOffset = CCInfo.getNextStackOffset();
 
-  // Call site info for function parameters tracking.
+  // Call site info for function parameters tracking and call base type info.
   MachineFunction::CallSiteInfo CSInfo;
+  // Set type id for call site info.
+  if (MF.getTarget().Options.EmitCallGraphSection && CB &&
+      CB->isIndirectCall()) {
+    CSInfo.TypeId = MachineFunction::CallSiteInfo::extractNumericCGTypeId(*CB);
+    if (!CSInfo.TypeId) {
+      errs() << "warning: cannot find indirect call type id metadata for call "
+                "graph section\n";
+    }
+  }
 
   // Check if it's really possible to do a tail call. Restrict it to functions
   // that are part of this compilation unit.
@@ -3350,7 +3360,7 @@ MipsTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       // Collect CSInfo about which register passes which parameter.
       const TargetOptions &Options = DAG.getTarget().Options;
       if (Options.SupportsDebugEntryValues)
-        CSInfo.emplace_back(VA.getLocReg(), i);
+        CSInfo.ArgRegPairs.emplace_back(VA.getLocReg(), i);
 
       continue;
     }

@@ -5676,6 +5676,7 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   bool &IsTailCall = CLI.IsTailCall;
   CallingConv::ID CallConv = CLI.CallConv;
   bool IsVarArg = CLI.IsVarArg;
+  const auto *CB = CLI.CB;
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFunction::CallSiteInfo CSInfo;
@@ -5685,6 +5686,16 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
   bool TailCallOpt = MF.getTarget().Options.GuaranteedTailCallOpt;
   bool IsSibCall = false;
   bool IsCalleeWin64 = Subtarget->isCallingConvWin64(CallConv);
+
+  // Set type id for call site info.
+  if (MF.getTarget().Options.EmitCallGraphSection && CB &&
+      CB->isIndirectCall()) {
+    CSInfo.TypeId = MachineFunction::CallSiteInfo::extractNumericCGTypeId(*CB);
+    if (!CSInfo.TypeId) {
+      errs() << "warning: cannot find indirect call type id metadata for "
+                "call graph section\n";
+    }
+  }
 
   // Check callee args/returns for SVE registers and set calling convention
   // accordingly.
@@ -5953,15 +5964,16 @@ AArch64TargetLowering::LowerCall(CallLoweringInfo &CLI,
         // Call site info is used for function's parameter entry value
         // tracking. For now we track only simple cases when parameter
         // is transferred through whole register.
-        llvm::erase_if(CSInfo, [&VA](MachineFunction::ArgRegPair ArgReg) {
-          return ArgReg.Reg == VA.getLocReg();
-        });
+        llvm::erase_if(CSInfo.ArgRegPairs,
+                       [&VA](MachineFunction::ArgRegPair ArgReg) {
+                         return ArgReg.Reg == VA.getLocReg();
+                       });
       } else {
         RegsToPass.emplace_back(VA.getLocReg(), Arg);
         RegsUsed.insert(VA.getLocReg());
         const TargetOptions &Options = DAG.getTarget().Options;
         if (Options.EmitCallSiteInfo)
-          CSInfo.emplace_back(VA.getLocReg(), i);
+          CSInfo.ArgRegPairs.emplace_back(VA.getLocReg(), i);
       }
     } else {
       assert(VA.isMemLoc());

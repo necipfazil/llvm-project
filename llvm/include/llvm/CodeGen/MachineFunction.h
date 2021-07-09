@@ -28,6 +28,7 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/ArrayRecycler.h"
 #include "llvm/Support/AtomicOrdering.h"
@@ -414,16 +415,36 @@ public:
       assert(Arg < (1 << 16) && "Arg out of range");
     }
   };
-  /// Vector of call argument and its forwarding register.
-  using CallSiteInfo = SmallVector<ArgRegPair, 1>;
-  using CallSiteInfoImpl = SmallVectorImpl<ArgRegPair>;
+
+  struct CallSiteInfo {
+    /// Vector of call argument and its forwarding register.
+    SmallVector<ArgRegPair, 1> ArgRegPairs;
+    /// Callee type id.
+    ConstantInt *TypeId = nullptr;
+
+    /// Extracts a generalized numeric type identifier of a CallBase's type from
+    /// type metadata. Returned object can be used to set TypeId. Returns null
+    /// if metadata cannot be found.
+    static ConstantInt *extractNumericCGTypeId(const CallBase &CB) {
+      const auto *MDN = CB.getMetadata(LLVMContext::MD_type);
+      if (MDN && MDN->getNumOperands() == 1) {
+        auto *TMDS = dyn_cast<MDString>(MDN->getOperand(0));
+        if (TMDS && TMDS->getString().endswith("generalized")) {
+          uint64_t TypeIdVal = llvm::MD5Hash(TMDS->getString());
+          Type *Int64Ty = Type::getInt64Ty(CB.getContext());
+          return cast<ConstantInt>(ConstantInt::get(Int64Ty, TypeIdVal));
+        }
+      }
+      return nullptr;
+    }
+  };
 
 private:
   Delegate *TheDelegate = nullptr;
   GISelChangeObserver *Observer = nullptr;
 
   using CallSiteInfoMap = DenseMap<const MachineInstr *, CallSiteInfo>;
-  /// Map a call instruction to call site arguments forwarding info.
+  /// Map a call instruction to call site arguments forwarding and type id.
   CallSiteInfoMap CallSitesInfo;
 
   /// A helper function that returns call site info for a give call
@@ -1172,9 +1193,8 @@ public:
     return VariableDbgInfos;
   }
 
-  /// Start tracking the arguments passed to the call \p CallI.
-  void addCallArgsForwardingRegs(const MachineInstr *CallI,
-                                 CallSiteInfoImpl &&CallInfo) {
+  /// Start tracking the arguments passed to the call \p CallI and call type.
+  void addCallSiteInfo(const MachineInstr *CallI, CallSiteInfo &&CallInfo) {
     assert(CallI->isCandidateForCallSiteEntry());
     bool Inserted =
         CallSitesInfo.try_emplace(CallI, std::move(CallInfo)).second;

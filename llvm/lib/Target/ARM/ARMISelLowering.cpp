@@ -2287,6 +2287,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CallingConv::ID CallConv              = CLI.CallConv;
   bool doesNotRet                       = CLI.DoesNotReturn;
   bool isVarArg                         = CLI.IsVarArg;
+  const auto *CB = CLI.CB;
 
   MachineFunction &MF = DAG.getMachineFunction();
   ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
@@ -2296,6 +2297,16 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   bool isCmseNSCall   = false;
   bool isSibCall = false;
   bool PreferIndirect = false;
+
+  // Set type id for call site info.
+  if (MF.getTarget().Options.EmitCallGraphSection && CB &&
+      CB->isIndirectCall()) {
+    CSInfo.TypeId = MachineFunction::CallSiteInfo::extractNumericCGTypeId(*CB);
+    if (!CSInfo.TypeId) {
+      errs() << "warning: cannot find indirect call type id metadata for call "
+                "graph section\n";
+    }
+  }
 
   // Determine whether this is a non-secure function call.
   if (CLI.CB && CLI.CB->getAttributes().hasFnAttribute("cmse_nonsecure_call"))
@@ -2493,7 +2504,7 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       }
       const TargetOptions &Options = DAG.getTarget().Options;
       if (Options.EmitCallSiteInfo)
-        CSInfo.emplace_back(VA.getLocReg(), i);
+        CSInfo.ArgRegPairs.emplace_back(VA.getLocReg(), i);
       RegsToPass.push_back(std::make_pair(VA.getLocReg(), Arg));
     } else if (isByVal) {
       assert(VA.isMemLoc());

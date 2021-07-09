@@ -3579,6 +3579,19 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
   CLI.NumResultRegs = RVLocs.size();
   CLI.Call = MIB;
 
+  // Add call site information (only call type id for call graph section).
+  if (TM.Options.EmitCallGraphSection && CB && CB->isIndirectCall()) {
+    auto *TypeId = MachineFunction::CallSiteInfo::extractNumericCGTypeId(*CB);
+    if (TypeId) {
+      MachineFunction::CallSiteInfo CSInfo;
+      CSInfo.TypeId = TypeId;
+      MF->addCallSiteInfo(CLI.Call, std::move(CSInfo));
+    } else {
+      errs() << "warning: cannot find indirect call type id metadata for call "
+                "graph section\n";
+    }
+  }
+
   return true;
 }
 
@@ -3969,6 +3982,8 @@ bool X86FastISel::tryToFoldLoadIntoMI(MachineInstr *MI, unsigned OpNo,
     MO.setReg(IndexReg);
   }
 
+  if (MI->isCall())
+    FuncInfo.MF->moveCallSiteInfo(MI, Result);
   Result->addMemOperand(*FuncInfo.MF, createMachineMemOperandFor(LI));
   Result->cloneInstrSymbols(*FuncInfo.MF, *MI);
   MachineBasicBlock::iterator I(MI);
