@@ -1406,6 +1406,10 @@ public:
   void CreateFunctionTypeMetadataForIcall(const FunctionDecl *FD,
                                           llvm::Function *F);
 
+  /// Create and attach type metadata to the given call.
+  void CreateFunctionTypeMetadataForIcall(const QualType &QT,
+                                          llvm::CallBase *CB);
+
   /// Whether this function's return type has no side effects, and thus may
   /// be trivially discarded if it is unused.
   bool MayDropFunctionReturn(const ASTContext &Context, QualType ReturnType);

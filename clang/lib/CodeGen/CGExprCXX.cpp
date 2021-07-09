@@ -86,9 +86,17 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorCall(
       *this, MD, This, ImplicitParam, ImplicitParamTy, CE, Args, RtlArgs);
   auto &FnInfo = CGM.getTypes().arrangeCXXMethodCall(
       Args, FPT, CallInfo.ReqArgs, CallInfo.PrefixSize);
-  return EmitCall(FnInfo, Callee, ReturnValue, Args, nullptr,
-                  CE && CE == MustTailCall,
-                  CE ? CE->getExprLoc() : SourceLocation());
+  llvm::CallBase *CallOrInvoke = nullptr;
+  auto Call = EmitCall(FnInfo, Callee, ReturnValue, Args, &CallOrInvoke,
+                       CE && CE == MustTailCall,
+                       CE ? CE->getExprLoc() : SourceLocation());
+
+  // Set type identifier metadata of indirect calls for call graph section.
+  if (CGM.getCodeGenOpts().CallGraphSection && CallOrInvoke &&
+      CallOrInvoke->isIndirectCall())
+    CGM.CreateFunctionTypeMetadataForIcall(MD->getType(), CallOrInvoke);
+
+  return Call;
 }
 
 RValue CodeGenFunction::EmitCXXDestructorCall(
@@ -112,9 +120,18 @@ RValue CodeGenFunction::EmitCXXDestructorCall(
   CallArgList Args;
   commonEmitCXXMemberOrOperatorCall(*this, DtorDecl, This, ImplicitParam,
                                     ImplicitParamTy, CE, Args, nullptr);
-  return EmitCall(CGM.getTypes().arrangeCXXStructorDeclaration(Dtor), Callee,
-                  ReturnValueSlot(), Args, nullptr, CE && CE == MustTailCall,
-                  CE ? CE->getExprLoc() : SourceLocation{});
+  llvm::CallBase *CallOrInvoke = nullptr;
+  auto Call =
+      EmitCall(CGM.getTypes().arrangeCXXStructorDeclaration(Dtor), Callee,
+               ReturnValueSlot(), Args, &CallOrInvoke, CE && CE == MustTailCall,
+               CE ? CE->getExprLoc() : SourceLocation{});
+
+  // Set type identifier metadata of indirect calls for call graph section.
+  if (CGM.getCodeGenOpts().CallGraphSection && CallOrInvoke &&
+      CallOrInvoke->isIndirectCall())
+    CGM.CreateFunctionTypeMetadataForIcall(DtorDecl->getType(), CallOrInvoke);
+
+  return Call;
 }
 
 RValue CodeGenFunction::EmitCXXPseudoDestructorExpr(
@@ -471,10 +488,18 @@ CodeGenFunction::EmitCXXMemberPointerCallExpr(const CXXMemberCallExpr *E,
 
   // And the rest of the call args
   EmitCallArgs(Args, FPT, E->arguments());
-  return EmitCall(CGM.getTypes().arrangeCXXMethodCall(Args, FPT, required,
-                                                      /*PrefixSize=*/0),
-                  Callee, ReturnValue, Args, nullptr, E == MustTailCall,
-                  E->getExprLoc());
+  llvm::CallBase *CallOrInvoke = nullptr;
+  auto Call = EmitCall(CGM.getTypes().arrangeCXXMethodCall(Args, FPT, required,
+                                                           /*PrefixSize=*/0),
+                       Callee, ReturnValue, Args, &CallOrInvoke,
+                       E == MustTailCall, E->getExprLoc());
+
+  // Set type identifier metadata of indirect calls for call graph section.
+  if (CGM.getCodeGenOpts().CallGraphSection && CallOrInvoke &&
+      CallOrInvoke->isIndirectCall())
+    CGM.CreateFunctionTypeMetadataForIcall(QualType(FPT, 0), CallOrInvoke);
+
+  return Call;
 }
 
 RValue
