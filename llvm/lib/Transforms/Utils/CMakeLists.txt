@@ -7,6 +7,7 @@ add_llvm_component_library(LLVMTransformUtils
   BreakCriticalEdges.cpp
   BuildLibCalls.cpp
   BypassSlowDivision.cpp
+  CGSectionFuncComdatCreator.cpp
   CallPromotionUtils.cpp
   CallGraphUpdater.cpp
   CanonicalizeAliases.cpp

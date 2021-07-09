@@ -81,6 +81,7 @@
 #include "llvm/Transforms/Scalar/GVN.h"
 #include "llvm/Transforms/Scalar/LowerMatrixIntrinsics.h"
 #include "llvm/Transforms/Utils.h"
+#include "llvm/Transforms/Utils/CGSectionFuncComdatCreator.h"
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/Debugify.h"
 #include "llvm/Transforms/Utils/EntryExitInstrumenter.h"
@@ -1413,6 +1414,10 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
     if (!CodeGenOpts.MemoryProfileOutput.empty()) {
       MPM.addPass(createModuleToFunctionPassAdaptor(MemProfilerPass()));
       MPM.addPass(ModuleMemProfilerPass());
+    }
+
+    if (CodeGenOpts.CallGraphSection) {
+      MPM.addPass(CGSectionFuncComdatCreatorPass());
     }
   }
 
