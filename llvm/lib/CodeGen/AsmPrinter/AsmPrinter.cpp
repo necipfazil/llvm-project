@@ -1230,6 +1230,158 @@ void AsmPrinter::emitStackUsage(const MachineFunction &MF) {
     *StackUsageStream << "static\n";
 }
 
+void AsmPrinter::emitCallGraphSection(
+    MCSection *CGSection,
+    const DenseMap<uint64_t, std::vector<const MCSymbol *>> &FuncEntryLabels,
+    const DenseMap<uint64_t, std::vector<const MCSymbol *>> &CallSiteLabels) {
+  if (FuncEntryLabels.empty() && CallSiteLabels.empty())
+    return;
+  assert(CGSection && "Null call graph section");
+  OutStreamer->PushSection();
+  OutStreamer->SwitchSection(CGSection);
+
+  // Emit for call sites, and function entries with matching type ids.
+  for (const auto &TypeIdCallSiteLabel : CallSiteLabels) {
+    uint64_t TypeId = TypeIdCallSiteLabel.first;
+    const auto &TypeIdCallSiteLabels = TypeIdCallSiteLabel.second;
+
+    // Format version number.
+    OutStreamer->emitInt64(0);
+
+    // Emit type id.
+    OutStreamer->emitInt64(TypeId);
+
+    // Emit number of call site labels.
+    OutStreamer->emitInt64(TypeIdCallSiteLabels.size());
+
+    // Emit the call site labels.
+    for (const auto &Label : TypeIdCallSiteLabels)
+      OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+
+    // Emit for the function entries with matching type id.
+    if (!FuncEntryLabels.count(TypeId)) {
+      // Emit the number of function entry labels: 0.
+      OutStreamer->emitInt64(0);
+    } else {
+      const auto &TypeIdFuncEntryLabels = FuncEntryLabels.find(TypeId)->second;
+
+      // Emit the number of function entry labels.
+      OutStreamer->emitInt64(TypeIdFuncEntryLabels.size());
+
+      // Emit the function entry labels.
+      for (const auto &Label : TypeIdFuncEntryLabels)
+        OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+    }
+  }
+
+  // Emit for the function entries that did not have a matching type id
+  // with any call site.
+  for (const auto &TypeIdFuncEntryLabel : FuncEntryLabels) {
+    uint64_t TypeId = TypeIdFuncEntryLabel.first;
+    const auto &TypeIdFuncEntryLabels = TypeIdFuncEntryLabel.second;
+
+    if (!CallSiteLabels.count(TypeId)) {
+      // Format version number.
+      OutStreamer->emitInt64(0);
+
+      // Emit type id.
+      OutStreamer->emitInt64(TypeId);
+
+      // Emit the number of call site labels: 0.
+      OutStreamer->emitInt64(0);
+
+      // Emit the number of function entry labels.
+      OutStreamer->emitInt64(TypeIdFuncEntryLabels.size());
+
+      // Emit the function entry labels.
+      for (const auto &Label : TypeIdFuncEntryLabels) {
+        OutStreamer->emitSymbolValue(Label, TM.getProgramPointerSize());
+      }
+    }
+  }
+
+  OutStreamer->PopSection();
+}
+
+void AsmPrinter::emitCallGraphSection() {
+  if (CallSiteLabels.empty() && FuncEntryLabels.empty())
+    return;
+
+  // Get a call graph section for a given function using its comdat group. This
+  // enables dead stripping of call graph sections if functions get removed.
+  auto GetCGSection = [&](const Function *Func) -> MCSection * {
+    assert(Func && "Null function");
+    static DenseMap<const Function *, MCSection *> FuncToSection;
+    if (FuncToSection.count(Func))
+      return FuncToSection[Func];
+    const Comdat *C = Func->getComdat();
+    assert((C || !TM.getTargetTriple().supportsCOMDAT() ||
+            Func->hasLocalLinkage() || Func->isInterposable()) &&
+           "Function comdat isn't set");
+    std::string ComdatGroup = C ? C->getName().str() : "";
+    MCSection *Section =
+        getObjFileLowering().getCallGraphSection(ComdatGroup, getSymbol(Func));
+    assert(Section && "Failed to create .callgraph section");
+    FuncToSection[Func] = Section;
+    return Section;
+  };
+
+  // Map numeric type identifiers to indirect target/call labels.
+  using Labels = DenseMap<uint64_t, std::vector<const MCSymbol *>>;
+
+  // Create and map CG sections to function entry labels.
+  DenseMap<MCSection *, Labels> FuncEntryLabelsPerSection;
+  for (const auto &El : FuncEntryLabels) {
+    const Function *Func = El.first;
+    MCSection *CGSection = GetCGSection(Func);
+    const auto &FuncTypeId = std::get<0>(El.second);
+    const auto &FuncEntryLabel = std::get<1>(El.second);
+    FuncEntryLabelsPerSection[CGSection][FuncTypeId].push_back(FuncEntryLabel);
+  }
+
+  // Create or get, and map CG sections to call site labels.
+  DenseMap<MCSection *, Labels> CallSiteLabelsPerSection;
+  for (const auto &El : CallSiteLabels) {
+    const Function *Func = El.first;
+    MCSection *CGSection = GetCGSection(Func);
+    const auto &TypeIdToLabels = El.second;
+    for (const auto &El2 : TypeIdToLabels) {
+      const auto &TypeId = El2.first;
+      const auto &Labels = El2.second;
+      std::copy(
+          Labels.begin(), Labels.end(),
+          std::back_inserter(CallSiteLabelsPerSection[CGSection][TypeId]));
+    }
+  }
+
+  // Emit to sections
+  const Labels EmptyLabels;
+  for (auto &El : FuncEntryLabelsPerSection) {
+    auto *CGSection = El.first;
+    Labels &FELabels = El.second;
+    if (CallSiteLabelsPerSection.count(CGSection))
+      emitCallGraphSection(CGSection, FELabels,
+                           CallSiteLabelsPerSection[CGSection]);
+    else
+      emitCallGraphSection(CGSection, FELabels, EmptyLabels);
+
+    FELabels.clear();
+    CallSiteLabelsPerSection.erase(CGSection);
+  }
+
+  for (auto &El : CallSiteLabelsPerSection) {
+    auto *CGSection = El.first;
+    auto CSLabels = El.second;
+    assert(!FuncEntryLabelsPerSection.count(CGSection) ||
+           FuncEntryLabelsPerSection[CGSection].empty() &&
+               "Leftover function entry labels");
+    emitCallGraphSection(CGSection, EmptyLabels, CSLabels);
+  }
+
+  CallSiteLabels.clear();
+  FuncEntryLabels.clear();
+}
+
 static bool needFuncLabelsForEHOrDebugInfo(const MachineFunction &MF) {
   MachineModuleInfo &MMI = MF.getMMI();
   if (!MF.getLandingPads().empty() || MF.hasEHFunclets() || MMI.hasDebugInfo())
@@ -1241,6 +1393,30 @@ static bool needFuncLabelsForEHOrDebugInfo(const MachineFunction &MF) {
     return false;
   return !isNoOpWithoutInvoke(
       classifyEHPersonality(MF.getFunction().getPersonalityFn()));
+}
+
+/// Extracts a generalized numeric type identifier of a Function's type from
+/// type metadata. Returns null if metadata cannot be found.
+static ConstantInt *extractNumericCGTypeId(const Function &F) {
+  SmallVector<MDNode *, 2> Types;
+  F.getMetadata(LLVMContext::MD_type, Types);
+  MDString *MDGeneralizedTypeId = nullptr;
+  for (const auto &Type : Types) {
+    if (Type->getNumOperands() == 2 && isa<MDString>(Type->getOperand(1))) {
+      auto *TMDS = cast<MDString>(Type->getOperand(1));
+      if (TMDS->getString().endswith("generalized")) {
+        MDGeneralizedTypeId = TMDS;
+        break;
+      }
+    }
+  }
+
+  if (!MDGeneralizedTypeId)
+    return nullptr;
+
+  uint64_t TypeIdVal = llvm::MD5Hash(MDGeneralizedTypeId->getString());
+  Type *Int64Ty = Type::getInt64Ty(F.getContext());
+  return cast<ConstantInt>(ConstantInt::get(Int64Ty, TypeIdVal));
 }
 
 /// EmitFunctionBody - This method emits the body and trailer for a
@@ -1274,6 +1450,36 @@ void AsmPrinter::emitFunctionBody() {
   int NumInstsInFunction = 0;
 
   bool CanDoExtraAnalysis = ORE->allowExtraAnalysis(DEBUG_TYPE);
+  if (TM.Options.EmitCallGraphSection) {
+    // If this function has external linkage or has its address taken and
+    // it is not a callback, then anything could call it. If so, emit a
+    // label to be referenced in the call graph section for indirect calls.
+    const auto &Func = MF->getFunction();
+    if (!Func.hasLocalLinkage() ||
+        Func.hasAddressTaken(nullptr,
+                             /* IgnoreCallbackUses */ true,
+                             /* IgnoreAssumeLikeCalls */ true,
+                             /* IgnoreLLVMUsed */ false)) {
+      MCSymbol *S = MF->getContext().createTempSymbol();
+      OutStreamer->emitLabel(S);
+
+      const auto *TypeId = extractNumericCGTypeId(Func);
+      if (TypeId) {
+        auto TypeIdVal = TypeId->getZExtValue();
+        FuncEntryLabels[&MF->getFunction()] =
+            std::pair<uint64_t, MCSymbol *>(TypeIdVal, S);
+      } else {
+        // Function may be target to indirect calls but type id cannot be found.
+        errs() << "warning: can't find indirect target type id metadata "
+               << "for " << MF->getFunction().getName() << "\n";
+        // For completeness of the list of indirect targets, use a special
+        // typeid (0).
+        FuncEntryLabels[&MF->getFunction()] =
+            std::pair<uint64_t, MCSymbol *>(0, S);
+      }
+    }
+  }
+  const auto &CallSitesInfoMap = MF->getCallSitesInfo();
   for (auto &MBB : *MF) {
     // Print a label for the basic block.
     emitBasicBlockStart(MBB);
@@ -1362,6 +1568,22 @@ void AsmPrinter::emitFunctionBody() {
         break;
       }
 
+      // TODO: Some indirect calls can get lowered to jump instructions,
+      // resulting in emitting labels for them. The extra information can
+      // be neglected while disassembly but still takes space in the binary.
+      if (TM.Options.EmitCallGraphSection && MI.isCall()) {
+        // Only indirect calls have type identifiers set.
+        const auto &CallSiteInfo = CallSitesInfoMap.find(&MI);
+        if (CallSiteInfo != CallSitesInfoMap.end()) {
+          if (auto *TypeId = CallSitesInfoMap.find(&MI)->second.TypeId) {
+            // Emit label for the indirect call.
+            uint64_t TypeIdVal = TypeId->getZExtValue();
+            MCSymbol *S = MF->getContext().createTempSymbol();
+            OutStreamer->emitLabel(S);
+            CallSiteLabels[&MF->getFunction()][TypeIdVal].push_back(S);
+          }
+        }
+      }
       // If there is a post-instruction symbol, emit a label for it here.
       if (MCSymbol *S = MI.getPostInstrSymbol())
         OutStreamer->emitLabel(S);
@@ -1767,6 +1989,9 @@ bool AsmPrinter::doFinalization(Module &M) {
   // not come after debug info.
   if (remarks::RemarkStreamer *RS = M.getContext().getMainRemarkStreamer())
     emitRemarksSection(*RS);
+
+  if (TM.Options.EmitCallGraphSection)
+    emitCallGraphSection();
 
   TLOF.emitModuleMetadata(*OutStreamer, M);
 

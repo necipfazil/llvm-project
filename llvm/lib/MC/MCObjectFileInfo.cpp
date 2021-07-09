@@ -1004,6 +1004,21 @@ void MCObjectFileInfo::initMCObjectFileInfo(MCContext &MCCtx, bool PIC,
   }
 }
 
+MCSection *
+MCObjectFileInfo::getCallGraphSection(const StringRef &FunctionGroup,
+                                      const MCSymbol *FunctionSym) const {
+  if (Ctx->getObjectFileType() != MCContext::IsELF)
+    return nullptr;
+
+  static unsigned UniqueID = 1;
+  unsigned Flags = ELF::SHF_LINK_ORDER;
+  if (!FunctionGroup.empty())
+    Flags |= ELF::SHF_GROUP;
+  return Ctx->getELFSection(".callgraph", ELF::SHT_PROGBITS, Flags, 0,
+                            FunctionGroup, true, UniqueID++,
+                            cast<MCSymbolELF>(FunctionSym));
+}
+
 MCSection *MCObjectFileInfo::getDwarfComdatSection(const char *Name,
                                                    uint64_t Hash) const {
   switch (Ctx->getTargetTriple().getObjectFormat()) {

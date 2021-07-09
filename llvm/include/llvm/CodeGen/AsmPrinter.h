@@ -15,6 +15,7 @@
 #ifndef LLVM_CODEGEN_ASMPRINTER_H
 #define LLVM_CODEGEN_ASMPRINTER_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/AsmPrinterHandler.h"
@@ -181,6 +182,22 @@ private:
 
   /// Emit comments in assembly output if this is true.
   bool VerboseAsm;
+
+  /// A numeric type identifier used in call graph section for indirect calls or
+  /// targets in.
+  using CGTypeIdVal = uint64_t;
+
+  /// Type identifier to indirect call site labels mapping.
+  using IndirCallSites = DenseMap<CGTypeIdVal, std::vector<const MCSymbol *>>;
+
+  /// Map a function to its type id and entry label. This is used to list
+  /// indirect target functions in call graph section with their type ids.
+  DenseMap<Function *, std::pair<CGTypeIdVal, const MCSymbol *>>
+      FuncEntryLabels;
+
+  /// Map a function to its indirect call sites. This is used to list indirect
+  /// call sites in call graph section.
+  DenseMap<Function *, IndirCallSites> CallSiteLabels;
 
   /// Output stream for the stack usage file (i.e., .su file).
   std::unique_ptr<raw_fd_ostream> StackUsageStream;
@@ -364,6 +381,8 @@ public:
   void emitStackUsage(const MachineFunction &MF);
 
   void emitBBAddrMapSection(const MachineFunction &MF);
+
+  void emitCallGraphSection();
 
   void emitPseudoProbe(const MachineInstr &MI);
 
@@ -785,6 +804,13 @@ private:
   //===------------------------------------------------------------------===//
   // Internal Implementation Details
   //===------------------------------------------------------------------===//
+  /// Emit indirect call and target information to a call graph section.
+  void emitCallGraphSection(
+      MCSection *CGSection,
+      const DenseMap<CGTypeIdVal, std::vector<const MCSymbol *>>
+          &FuncEntryLabels,
+      const DenseMap<CGTypeIdVal, std::vector<const MCSymbol *>>
+          &CallSiteLabels);
 
   void emitJumpTableEntry(const MachineJumpTableInfo *MJTI,
                           const MachineBasicBlock *MBB, unsigned uid) const;
