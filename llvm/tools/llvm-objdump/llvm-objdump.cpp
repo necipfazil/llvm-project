@@ -219,6 +219,8 @@ static bool Wide;
 std::string objdump::Prefix;
 uint32_t objdump::PrefixStrip;
 
+static bool QuietDisasm = false;
+
 DebugVarsFormat objdump::DbgVariables = DVDisabled;
 
 int objdump::DbgIndent = 52;
@@ -1062,6 +1064,8 @@ static void emitPostInstructionInfo(formatted_raw_ostream &FOS,
   FOS.flush();
 }
 
+static raw_ostream &disasmOuts() { return QuietDisasm ? nulls() : outs(); }
+
 static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
                               MCContext &Ctx, MCDisassembler *PrimaryDisAsm,
                               MCDisassembler *SecondaryDisAsm,
@@ -1281,25 +1285,26 @@ static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
 
       if (!PrintedSection) {
         PrintedSection = true;
-        outs() << "\nDisassembly of section ";
+        disasmOuts() << "\nDisassembly of section ";
         if (!SegmentName.empty())
-          outs() << SegmentName << ",";
-        outs() << SectionName << ":\n";
+          disasmOuts() << SegmentName << ",";
+        disasmOuts() << SectionName << ":\n";
       }
 
-      outs() << '\n';
+      disasmOuts() << '\n';
       if (LeadingAddr)
-        outs() << format(Is64Bits ? "%016" PRIx64 " " : "%08" PRIx64 " ",
-                         SectionAddr + Start + VMAAdjustment);
+        disasmOuts() << format(Is64Bits ? "%016" PRIx64 " " : "%08" PRIx64 " ",
+                               SectionAddr + Start + VMAAdjustment);
       if (Obj->isXCOFF() && SymbolDescription) {
-        outs() << getXCOFFSymbolDescription(Symbols[SI], SymbolName) << ":\n";
+        disasmOuts() << getXCOFFSymbolDescription(Symbols[SI], SymbolName)
+                     << ":\n";
       } else
-        outs() << '<' << SymbolName << ">:\n";
+        disasmOuts() << '<' << SymbolName << ">:\n";
 
       // Don't print raw contents of a virtual section. A virtual section
       // doesn't have any contents in the file.
       if (Section.isVirtual()) {
-        outs() << "...\n";
+        disasmOuts() << "...\n";
         continue;
       }
 
@@ -1323,11 +1328,11 @@ static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
       //
       if (Status.hasValue()) {
         if (Status.getValue() == MCDisassembler::Fail) {
-          outs() << "// Error in decoding " << SymbolName
-                 << " : Decoding failed region as bytes.\n";
+          disasmOuts() << "// Error in decoding " << SymbolName
+                       << " : Decoding failed region as bytes.\n";
           for (uint64_t I = 0; I < Size; ++I) {
-            outs() << "\t.byte\t " << format_hex(Bytes[I], 1, /*Upper=*/true)
-                   << "\n";
+            disasmOuts() << "\t.byte\t "
+                         << format_hex(Bytes[I], 1, /*Upper=*/true) << "\n";
           }
         }
       } else {
@@ -1355,7 +1360,7 @@ static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
                              Symbols[SI].Type != ELF::STT_OBJECT &&
                              !DisassembleAll;
       bool DumpARMELFData = false;
-      formatted_raw_ostream FOS(outs());
+      formatted_raw_ostream FOS(disasmOuts());
 
       std::unordered_map<uint64_t, std::string> AllLabels;
       if (SymbolizeOperands)
@@ -2542,6 +2547,8 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
     const char *Argv[] = {"llvm-objdump", AsmSyntax};
     llvm::cl::ParseCommandLineOptions(2, Argv);
   }
+
+  QuietDisasm = false;
 
   // objdump defaults to a.out if no filenames specified.
   if (InputFilenames.empty())
