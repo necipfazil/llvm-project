@@ -177,6 +177,7 @@ static uint64_t AdjustVMA;
 static bool AllHeaders;
 static std::string ArchName;
 bool objdump::ArchiveHeaders;
+static bool CallGraphInfo;
 bool objdump::Demangle;
 bool objdump::Disassemble;
 bool objdump::DisassembleAll;
@@ -220,6 +221,13 @@ std::string objdump::Prefix;
 uint32_t objdump::PrefixStrip;
 
 static bool QuietDisasm = false;
+
+struct FunctionInfo {
+  std::string Name;
+};
+
+// Map function entry pc to function info.
+MapVector<uint64_t, FunctionInfo> FuncInfo;
 
 DebugVarsFormat objdump::DbgVariables = DVDisabled;
 
@@ -1194,7 +1202,7 @@ static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
   LLVM_DEBUG(LVP.dump());
 
   for (const SectionRef &Section : ToolSectionFilter(*Obj)) {
-    if (FilterSections.empty() && !DisassembleAll &&
+    if (((FilterSections.empty() && !DisassembleAll) || CallGraphInfo) &&
         (!Section.isText() || Section.isVirtual()))
       continue;
 
@@ -1367,6 +1375,11 @@ static void disassembleObject(const Target *TheTarget, const ObjectFile *Obj,
         collectLocalBranchTargets(Bytes, MIA, DisAsm, IP, PrimarySTI,
                                   SectionAddr, Index, End, AllLabels);
 
+      if (CallGraphInfo && Symbols[SI].Type == ELF::STT_FUNC) {
+        auto FuncPc = Symbols[SI].Addr;
+        auto FuncName = Symbols[SI].Name.str();
+        FuncInfo[FuncPc].Name = FuncName;
+      }
       while (Index < End) {
         // ARM and AArch64 ELF binaries can interleave data and text in the
         // same section. We rely on the markers introduced to understand what
@@ -2037,6 +2050,20 @@ void objdump::printSymbol(const ObjectFile *O, const SymbolRef &Symbol,
     outs() << ' ' << Name << '\n';
 }
 
+static void printCallGraphInfo(const ObjectFile *Obj) {
+  // Get function info through disassembly.
+  disassembleObject(Obj, /*InlineRelocs=*/false);
+
+  // Print function entry pc to function name mapping.
+  outs() << "\n\nFUNCTIONS (FUNC_ENTRY_ADDR, SYM_NAME)";
+  for (const auto &El : FuncInfo) {
+    uint64_t EntryPc = El.first;
+    const auto &Name = El.second.Name;
+    outs() << "\n" << format("%lx", EntryPc) << " " << Name;
+  }
+  outs() << "\n";
+}
+
 static void printUnwindInfo(const ObjectFile *O) {
   outs() << "Unwind info:\n\n";
 
@@ -2316,6 +2343,8 @@ static void dumpObject(ObjectFile *O, const Archive *A = nullptr,
     printRawClangAST(O);
   if (FaultMapSection)
     printFaultMaps(O);
+  if (CallGraphInfo)
+    printCallGraphInfo(O);
 }
 
 static void dumpObject(const COFFImportFile *I, const Archive *A,
@@ -2461,6 +2490,7 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
   AllHeaders = InputArgs.hasArg(OBJDUMP_all_headers);
   ArchName = InputArgs.getLastArgValue(OBJDUMP_arch_name_EQ).str();
   ArchiveHeaders = InputArgs.hasArg(OBJDUMP_archive_headers);
+  CallGraphInfo = InputArgs.hasArg(OBJDUMP_call_graph_info);
   Demangle = InputArgs.hasArg(OBJDUMP_demangle);
   Disassemble = InputArgs.hasArg(OBJDUMP_disassemble);
   DisassembleAll = InputArgs.hasArg(OBJDUMP_disassemble_all);
@@ -2548,7 +2578,7 @@ static void parseObjdumpOptions(const llvm::opt::InputArgList &InputArgs) {
     llvm::cl::ParseCommandLineOptions(2, Argv);
   }
 
-  QuietDisasm = false;
+  QuietDisasm = CallGraphInfo;
 
   // objdump defaults to a.out if no filenames specified.
   if (InputFilenames.empty())
@@ -2641,6 +2671,7 @@ int main(int argc, char **argv) {
       !DynamicRelocations && !FileHeaders && !PrivateHeaders && !RawClangAST &&
       !Relocations && !SectionHeaders && !SectionContents && !SymbolTable &&
       !DynamicSymbolTable && !UnwindInfo && !FaultMapSection &&
+      !CallGraphInfo &&
       !(MachOOpt &&
         (Bind || DataInCode || DylibId || DylibsUsed || ExportsTrie ||
          FirstPrivateHeader || FunctionStarts || IndirectSymbols || InfoPlist ||
