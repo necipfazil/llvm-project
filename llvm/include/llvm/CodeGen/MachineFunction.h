@@ -418,6 +418,9 @@ public:
   struct CallSiteInfo {
     /// Vector of call argument and its forwarding register.
     SmallVector<ArgRegPair, 1> ArgRegPairs;
+
+    /// Callee type id.
+    ConstantInt *TypeId = nullptr;
   };
 
 private:
@@ -425,7 +428,7 @@ private:
   GISelChangeObserver *Observer = nullptr;
 
   using CallSiteInfoMap = DenseMap<const MachineInstr *, CallSiteInfo>;
-  /// Map a call instruction to call site arguments forwarding info.
+  /// Map a call instruction to call site arguments forwarding and type id.
   CallSiteInfoMap CallSitesInfo;
 
   /// A helper function that returns call site info for a give call
@@ -1174,7 +1177,7 @@ public:
     return VariableDbgInfos;
   }
 
-  /// Start tracking the arguments passed to the call \p CallI.
+  /// Start tracking the arguments passed to the call \p CallI and call type.
   void addCallSiteInfo(const MachineInstr *CallI, CallSiteInfo &&CallInfo) {
     assert(CallI->isCandidateForCallSiteEntry());
     bool Inserted =
