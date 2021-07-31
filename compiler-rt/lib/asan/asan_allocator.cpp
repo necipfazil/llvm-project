@@ -14,6 +14,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <dlfcn.h>
+#include <link.h>
 #include "asan_allocator.h"
 
 #include "asan_mapping.h"
@@ -483,6 +485,7 @@ struct Allocator {
   // -------------------- Allocation/Deallocation routines ---------------
   void *Allocate(uptr size, uptr alignment, BufferedStackTrace *stack,
                  AllocType alloc_type, bool can_fill) {
+    ReportStackTrace(stack);
     if (UNLIKELY(!asan_inited))
       AsanInitFromRtl();
     if (RssLimitExceeded()) {
@@ -673,8 +676,39 @@ struct Allocator {
     }
   }
 
+  static uptr TranslatePc(uptr pc) {
+    Dl_info info;
+    struct link_map *map;
+    if ( dladdr1((void*)pc, &info, (void**)&map, RTLD_DL_LINKMAP) ) {
+      if (map->l_addr) {
+        // There is difference between the memory and the object addresses.
+        if (pc >= map->l_addr)
+          return pc - (uptr)map->l_addr;
+        else
+          return (uptr)map->l_addr - pc;
+      }
+    }
+    return pc;
+  }
+
+  static void ReportStackTrace(const BufferedStackTrace *BST) {
+    if(!BST) return;
+    __sanitizer::InternalScopedString ISS;
+    ISS.append("\nST: ");
+    const auto &Trace = BST->trace;
+    if (!(BST->size > 1)) return;
+    for (u32 I = 0; I < BST->size - 1; I++) {
+      auto pc = Trace[I];
+      pc = TranslatePc(pc);
+      ISS.append("%x ", pc);
+    }
+    ISS.append("\n");
+    Report(ISS.data());
+  }
+
   void Deallocate(void *ptr, uptr delete_size, uptr delete_alignment,
                   BufferedStackTrace *stack, AllocType alloc_type) {
+    ReportStackTrace(stack);
     uptr p = reinterpret_cast<uptr>(ptr);
     if (p == 0) return;
 
